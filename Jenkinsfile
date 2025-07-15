@@ -6,12 +6,13 @@ pipeline {
     }
 
     environment {
-        // ✅ Correct MI installation path on your Mac
+        // ✅ Correct MI installation path on your machine
         MI_HOME = '/Users/emmanuelmuchiri/Documents/Kulana/DBG/Prod/wso2mi-4.2.0'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
         MI_START_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
         MI_STOP_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
 
+        // Ensure tools like mvn, java, etc. are in PATH
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
@@ -48,8 +49,16 @@ pipeline {
             steps {
                 sh '''
                 echo "===== Stopping Micro Integrator ====="
-                pkill -f micro-integrator || echo "Micro Integrator not running"
+                ${MI_STOP_SCRIPT} stop
                 sleep 5
+
+                # Optional: Confirm it's stopped
+                if pgrep -f micro-integrator > /dev/null; then
+                  echo "Warning: Micro Integrator still running!"
+                  ps aux | grep micro-integrator | grep -v grep
+                else
+                  echo "Micro Integrator stopped successfully."
+                fi
                 '''
             }
         }
@@ -80,9 +89,16 @@ pipeline {
             steps {
                 sh '''
                 echo "===== Starting Micro Integrator ====="
-                nohup ${MI_START_SCRIPT} &>/dev/null &
+                nohup ${MI_START_SCRIPT} start &>/dev/null &
                 sleep 10
-                echo "Micro Integrator started."
+
+                # Confirm MI is running
+                if pgrep -f micro-integrator > /dev/null; then
+                    echo "Micro Integrator started successfully."
+                else
+                    echo "Failed to start Micro Integrator!"
+                    exit 1
+                fi
                 '''
             }
         }
