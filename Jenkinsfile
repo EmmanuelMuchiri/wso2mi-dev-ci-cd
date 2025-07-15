@@ -32,7 +32,7 @@ pipeline {
 
         stage('Clone Repository') {
             steps {
-                git branch: 'wso2_mi_test', url: 'https://github.com/EmmanuelMuchiri/dbg.git'
+                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-cd.git '
             }
         }
 
