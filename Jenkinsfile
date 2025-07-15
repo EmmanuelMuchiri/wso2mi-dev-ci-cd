@@ -9,8 +9,8 @@ pipeline {
         // ✅ Correct MI installation path on your machine
         MI_HOME = '/opt/wso2mi'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
-        MI_START_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
-        MI_STOP_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
+        MI_START_SCRIPT = "${MI_HOME}/bin/sh micro-integrator.sh"
+        MI_STOP_SCRIPT = "${MI_HOME}/bin/sh micro-integrator.sh"
 
         // Ensure tools like mvn, java, etc. are in PATH
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
