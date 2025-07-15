@@ -1,0 +1,28 @@
+<api xmlns="http://ws.apache.org/ns/synapse" name="HelloWorldAPI" context="/hello">
+    <resource methods="GET" uri-template="/world">
+        <inSequence>
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                        "message": "Hello World!",
+                        "timestamp": "${now()}"
+                    }
+                </format>
+            </payloadFactory>
+            <respond/>
+        </inSequence>
+        <faultSequence>
+            <log category="ERROR">
+                <message>Error occurred: ${props.synapse.ERROR_MESSAGE}</message>
+            </log>
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                        "error": "Internal server error"
+                    }
+                </format>
+            </payloadFactory>
+            <respond/>
+        </faultSequence>
+    </resource>
+</api>
