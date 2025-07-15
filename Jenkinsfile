@@ -2,17 +2,16 @@ pipeline {
     agent any
 
     tools {
-        maven 'MVN_HOME' // Match the name configured in Jenkins
+        maven 'MVN_HOME' // Ensure this matches the Maven tool name configured in Jenkins
     }
 
     environment {
-        // ✅ Correct MI installation path on your machine
+        // ✅ Mounted path of Micro Integrator inside the Jenkins container
         MI_HOME = '/opt/wso2mi'
+        MI_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
-        MI_START_SCRIPT = "${MI_HOME}/bin/sh micro-integrator.sh"
-        MI_STOP_SCRIPT = "${MI_HOME}/bin/sh micro-integrator.sh"
 
-        // Ensure tools like mvn, java, etc. are in PATH
+        // Add system binaries to PATH if needed
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
@@ -21,11 +20,12 @@ pipeline {
         stage('Check Environment') {
             steps {
                 sh '''
-                echo "===== Checking tools ====="
+                echo "===== Checking Environment ====="
                 which mvn || echo "Maven not found!"
+                which java || echo "Java not found!"
                 which zip || echo "zip not found!"
-                echo "JAVA_HOME=$JAVA_HOME"
                 java -version
+                echo "MI_HOME = $MI_HOME"
                 '''
             }
         }
@@ -49,15 +49,21 @@ pipeline {
             steps {
                 sh '''
                 echo "===== Stopping Micro Integrator ====="
-                ${MI_STOP_SCRIPT} stop
+                if [ -f "$MI_SCRIPT" ]; then
+                    sh $MI_SCRIPT stop
+                else
+                    echo "Micro Integrator script not found at $MI_SCRIPT"
+                    exit 1
+                fi
+
                 sleep 5
 
-                # Optional: Confirm it's stopped
+                # Confirm shutdown
                 if pgrep -f micro-integrator > /dev/null; then
-                  echo "Warning: Micro Integrator still running!"
-                  ps aux | grep micro-integrator | grep -v grep
+                    echo "Warning: Micro Integrator still running!"
+                    ps aux | grep micro-integrator | grep -v grep
                 else
-                  echo "Micro Integrator stopped successfully."
+                    echo "✅ Micro Integrator stopped successfully."
                 fi
                 '''
             }
@@ -89,14 +95,20 @@ pipeline {
             steps {
                 sh '''
                 echo "===== Starting Micro Integrator ====="
-                nohup ${MI_START_SCRIPT} start &>/dev/null &
+                if [ -f "$MI_SCRIPT" ]; then
+                    nohup sh $MI_SCRIPT start &>/dev/null &
+                else
+                    echo "Micro Integrator script not found at $MI_SCRIPT"
+                    exit 1
+                fi
+
                 sleep 10
 
-                # Confirm MI is running
+                # Confirm startup
                 if pgrep -f micro-integrator > /dev/null; then
-                    echo "Micro Integrator started successfully."
+                    echo "✅ Micro Integrator started successfully."
                 else
-                    echo "Failed to start Micro Integrator!"
+                    echo "❌ Failed to start Micro Integrator!"
                     exit 1
                 fi
                 '''
@@ -109,7 +121,7 @@ pipeline {
             echo "✅ Micro Integrator deployment completed successfully."
         }
         failure {
-            echo "❌ Deployment failed. Please check logs for details."
+            echo "❌ Deployment failed. Please check the logs and fix the issue."
         }
     }
 }
