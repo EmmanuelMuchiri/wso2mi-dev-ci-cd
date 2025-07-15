@@ -6,13 +6,12 @@ pipeline {
     }
 
     environment {
-        // Paths and credentials
-        MI_HOME = '/opt/wso2mi-4.2.0'                // Path to Micro Integrator installation
+        // ✅ Correct MI installation path on your Mac
+        MI_HOME = '/Users/emmanuelmuchiri/Documents/Kulana/DBG/Prod/wso2mi-4.2.0'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
         MI_START_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
         MI_STOP_SCRIPT = "${MI_HOME}/bin/micro-integrator.sh"
 
-        // Ensure required tools are in PATH
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
@@ -32,7 +31,7 @@ pipeline {
 
         stage('Clone Repository') {
             steps {
-                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-cd.git '
+                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-cd.git'
             }
         }
 
@@ -60,7 +59,6 @@ pipeline {
                 sh '''
                 echo "===== Deploying CAR file ====="
                 
-                # Find the newly built .car file
                 CAR_FILE=$(find . -name "*.car" | head -n 1)
                 echo "CAR File to deploy: $CAR_FILE"
 
