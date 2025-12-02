@@ -6,15 +6,9 @@ pipeline {
     }
 
     environment {
-        MI_HOME = '/host_ci_cd/wso2mi-4.3.0'
-        CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
-        
-        // DockerHub configuration
-        DOCKERHUB_USERNAME = 'emmanuelmuchiri'  // Change this
-        DOCKER_IMAGE_NAME = "${DOCKERHUB_USERNAME}/dbg"
+        MI_HOME = 'wso2mi-4.3.0'
+        DOCKER_IMAGE_NAME = "emmanuelmuchiri/dbg"
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        
-        PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
     stages {
@@ -22,217 +16,118 @@ pipeline {
         stage('Check Environment') {
             steps {
                 sh '''
-                echo "===== Checking Environment ====="
-                which mvn || echo "Maven not found!"
-                which java || echo "Java not found!"
+                echo "===== Checking Build Environment ====="
+                mvn -version
                 java -version
-                echo "MI_HOME = $MI_HOME"
-                echo "CAR_DEPLOY_DIR = $CAR_DEPLOY_DIR"
-                
-                if [ -d "$MI_HOME" ]; then
-                    echo "✅ MI_HOME directory accessible"
-                    ls -la $MI_HOME
-                else
-                    echo "❌ MI_HOME directory not found!"
-                    exit 1
-                fi
                 '''
             }
         }
 
         stage('Clone Repository') {
             steps {
-                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-cd.git'
+                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-c-d.git'
             }
         }
 
         stage('Build CAR File') {
             steps {
                 sh '''
-                echo "===== Building CAR file ====="
-                mvn clean install
+                echo "===== Building CAR ====="
+                mvn clean install -DskipTests
                 '''
             }
         }
 
-        stage('Deploy CAR to Local MI') {
+        stage('Assemble Deployment Folder') {
             steps {
                 sh '''
-                echo "===== Deploying CAR file to local MI directory ====="
-                
+                echo "===== Preparing MI Deployment Folder ====="
+
+                # Create build workspace
+                rm -rf build
+                mkdir -p build/${MI_HOME}/repository/deployment/server/carbonapps
+
+                # Extract runtime (assumes wso2mi-4.3.0.zip exists in repo)
+                unzip -q ${MI_HOME}.zip -d build/
+
+                # Copy CAR
                 CAR_FILE=$(find . -name "*.car" | head -n 1)
-                echo "CAR File to deploy: $CAR_FILE"
+                echo "CAR Found: $CAR_FILE"
+                cp "$CAR_FILE" build/${MI_HOME}/repository/deployment/server/carbonapps/
 
-                if [ -f "$CAR_FILE" ]; then
-                    echo "Creating deployment directory if it doesn't exist..."
-                    mkdir -p ${CAR_DEPLOY_DIR}
-                    
-                    echo "Removing old CAR files..."
-                    rm -f ${CAR_DEPLOY_DIR}/*.car
-
-                    echo "Copying new CAR file to deployment directory..."
-                    cp "$CAR_FILE" ${CAR_DEPLOY_DIR}/
-                    
-                    echo "✅ CAR file deployed to: ${CAR_DEPLOY_DIR}"
-                    ls -lh ${CAR_DEPLOY_DIR}/
-                else
-                    echo "❌ CAR file not found! Failing pipeline."
-                    exit 1
-                fi
+                echo "Deployment folder ready."
                 '''
             }
         }
 
         stage('Create Dockerfile') {
             steps {
-                sh '''
-                echo "===== Creating Dockerfile ====="
-                
-                cat > /host_ci_cd/Dockerfile <<'EOF'
-FROM ubuntu:20.04
+                writeFile file: 'Dockerfile', text: """
+FROM eclipse-temurin:11-jre
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 ENV MI_HOME=/opt/wso2mi-4.3.0
 
-RUN apt-get update && \
-    apt-get install -y openjdk-11-jdk && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+COPY build/wso2mi-4.3.0/ \$MI_HOME/
 
-COPY wso2mi-4.3.0 ${MI_HOME}
+WORKDIR \$MI_HOME
 
-WORKDIR ${MI_HOME}
-
-RUN chmod +x ${MI_HOME}/bin/*.sh
+RUN chmod +x \$MI_HOME/bin/*.sh
 
 EXPOSE 8290 8253 9164
 
-CMD ["sh", "-c", "${MI_HOME}/bin/micro-integrator.sh"]
-EOF
-
-                echo "✅ Dockerfile created at /host_ci_cd/Dockerfile"
-                cat /host_ci_cd/Dockerfile
-                '''
+ENTRYPOINT ["sh", "-c", "\$MI_HOME/bin/micro-integrator.sh"]
+"""
+                sh "echo '===== Dockerfile ready ====='"
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    // Create a build script that will run on the host
-                    sh '''
-                    echo "===== Creating Docker build script for host ====="
-                    
-                    cat > /host_ci_cd/build-docker.sh <<EOF
-#!/bin/bash
-set -e
-
-echo "Building Docker image on host machine..."
-cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD
-
-docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
-docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
-
-echo "✅ Docker image built successfully"
-docker images | grep wso2mi-custom
-EOF
-
-                    chmod +x /host_ci_cd/build-docker.sh
-                    
-                    echo "✅ Build script created at /host_ci_cd/build-docker.sh"
-                    '''
-                }
+                sh '''
+                echo "===== Building Docker Image ====="
+                docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
+                docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+                '''
             }
         }
 
         stage('Push to DockerHub') {
-            steps {
-                script {
-                    sh '''
-                    echo "===== Creating Docker push script for host ====="
-                    
-                    cat > /host_ci_cd/push-docker.sh <<EOF
-#!/bin/bash
-set -e
-
-echo "Pushing Docker image to DockerHub..."
-
-# Login to DockerHub (will prompt for password)
-echo "Please enter your DockerHub password:"
-docker login -u ${DOCKERHUB_USERNAME}
-
-# Push both tags
-echo "Pushing ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}..."
-docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-
-echo "Pushing ${DOCKER_IMAGE_NAME}:latest..."
-docker push ${DOCKER_IMAGE_NAME}:latest
-
-echo "✅ Docker images pushed successfully to DockerHub!"
-echo ""
-echo "Images available at:"
-echo "  - ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-echo "  - ${DOCKER_IMAGE_NAME}:latest"
-EOF
-
-                    chmod +x /host_ci_cd/push-docker.sh
-                    
-                    echo "✅ Push script created at /host_ci_cd/push-docker.sh"
-                    '''
-                }
+            environment {
+                DOCKER_CREDS = credentials('dockerhub-credentials')
             }
-        }
-
-        stage('Deployment Instructions') {
             steps {
                 sh '''
-                echo "=============================================="
-                echo "DOCKER BUILD & PUSH INSTRUCTIONS"
-                echo "=============================================="
-                echo ""
-                echo "Step 1: Build the Docker image"
-                echo "  /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh"
-                echo ""
-                echo "Step 2: Push to DockerHub"
-                echo "  /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/push-docker.sh"
-                echo ""
-                echo "Or run both manually:"
-                echo "  cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD"
-                echo "  docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
-                echo "  docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest"
-                echo "  docker login -u ${DOCKERHUB_USERNAME}"
-                echo "  docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-                echo "  docker push ${DOCKER_IMAGE_NAME}:latest"
-                echo ""
-                echo "=============================================="
+                echo "===== Authenticating to DockerHub ====="
+                echo "$DOCKER_CREDS_PSW" | docker login -u "$DOCKER_CREDS_USR" --password-stdin
+
+                echo "===== Pushing Docker Images ====="
+                docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                docker push ${DOCKER_IMAGE_NAME}:latest
                 '''
             }
         }
+
     }
 
     post {
         success {
             echo """
-            ✅ Pipeline completed successfully!
-            
-            Next steps:
-            1. Build the Docker image:
-               /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh
-            
-            2. Push to DockerHub:
-               /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/push-docker.sh
-            
-            3. Pull and run from any machine:
-               docker pull ${DOCKER_IMAGE_NAME}:latest
-               docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
-            
-            4. View logs:
-               docker logs -f wso2mi
+            🎉 SUCCESS — CI/CD Pipeline Completed!
+
+            Docker Images:
+              - ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+              - ${DOCKER_IMAGE_NAME}:latest
+
+            Run MI Anywhere:
+              docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name mi ${DOCKER_IMAGE_NAME}:latest
+
+            Logs:
+              docker logs -f mi
             """
         }
+
         failure {
-            echo "❌ Pipeline failed. Please check the logs."
+            echo "❌ Pipeline failed. Check logs above."
         }
     }
 }
