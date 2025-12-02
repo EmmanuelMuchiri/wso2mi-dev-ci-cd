@@ -11,7 +11,7 @@ pipeline {
         
         // DockerHub configuration
         DOCKERHUB_USERNAME = 'emmanuelmuchiri'  // Change this
-        DOCKER_IMAGE_NAME = "${DOCKERHUB_USERNAME}/wso2mi-custom"
+        DOCKER_IMAGE_NAME = "${DOCKERHUB_USERNAME}/dbg"
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
         
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
