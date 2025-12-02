@@ -6,14 +6,10 @@ pipeline {
     }
 
     environment {
-        // Path inside Jenkins container (mounted from host)
         MI_HOME = '/host_ci_cd/wso2mi-4.3.0'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
-        
-        // Docker image configuration
         DOCKER_IMAGE_NAME = 'wso2mi-custom'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
@@ -29,7 +25,6 @@ pipeline {
                 echo "MI_HOME = $MI_HOME"
                 echo "CAR_DEPLOY_DIR = $CAR_DEPLOY_DIR"
                 
-                # Verify mounted directory is accessible
                 if [ -d "$MI_HOME" ]; then
                     echo "✅ MI_HOME directory accessible"
                     ls -la $MI_HOME
@@ -120,41 +115,54 @@ EOF
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                echo "===== Building Docker Image ====="
-                
-                # Check if Docker socket is mounted
-                if [ -S /var/run/docker.sock ]; then
-                    cd /host_ci_cd
-                    docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
-                    docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+                script {
+                    // Create a build script that will run on the host
+                    sh '''
+                    echo "===== Creating Docker build script for host ====="
                     
-                    echo "✅ Docker image built successfully"
-                    docker images | grep ${DOCKER_IMAGE_NAME}
-                else
-                    echo "⚠️  Docker socket not mounted. Cannot build image."
-                    echo "Dockerfile has been created at /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/Dockerfile"
+                    cat > /host_ci_cd/build-docker.sh <<EOF
+#!/bin/bash
+set -e
+
+echo "Building Docker image on host machine..."
+cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD
+
+docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
+docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+
+echo "✅ Docker image built successfully"
+docker images | grep ${DOCKER_IMAGE_NAME}
+EOF
+
+                    chmod +x /host_ci_cd/build-docker.sh
+                    
+                    echo "✅ Build script created at /host_ci_cd/build-docker.sh"
                     echo ""
-                    echo "Build manually on your Mac with:"
-                    echo "cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD"
-                    echo "docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
-                fi
-                '''
+                    echo "Run this command on your Mac terminal:"
+                    echo "/Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh"
+                    '''
+                }
             }
         }
 
-        stage('Verify Docker Image') {
+        stage('Manual Build Instructions') {
             steps {
                 sh '''
-                echo "===== Verifying Docker Image ====="
-                if [ -S /var/run/docker.sock ]; then
-                    docker images ${DOCKER_IMAGE_NAME}
-                    echo ""
-                    echo "Image details:"
-                    docker inspect ${DOCKER_IMAGE_NAME}:latest --format='Size: {{.Size}} bytes'
-                else
-                    echo "Skipping - Docker not available in Jenkins container"
-                fi
+                echo "=============================================="
+                echo "DOCKER BUILD INSTRUCTIONS"
+                echo "=============================================="
+                echo ""
+                echo "Since Docker CLI is not available in Jenkins,"
+                echo "please run this command on your Mac:"
+                echo ""
+                echo "  /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh"
+                echo ""
+                echo "Or manually:"
+                echo "  cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD"
+                echo "  docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
+                echo "  docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest"
+                echo ""
+                echo "=============================================="
                 '''
             }
         }
@@ -165,17 +173,15 @@ EOF
             echo """
             ✅ Pipeline completed successfully!
             
-            Docker Image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-            CAR File deployed to: ${CAR_DEPLOY_DIR}
+            Next steps:
+            1. Run the build script on your Mac:
+               /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh
             
-            To run the container:
-            docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
+            2. Then start the container:
+               docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
             
-            To view logs:
-            docker logs -f wso2mi
-            
-            To stop:
-            docker stop wso2mi && docker rm wso2mi
+            3. View logs:
+               docker logs -f wso2mi
             """
         }
         failure {
