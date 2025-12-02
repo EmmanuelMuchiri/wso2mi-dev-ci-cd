@@ -8,8 +8,12 @@ pipeline {
     environment {
         MI_HOME = '/host_ci_cd/wso2mi-4.3.0'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
-        DOCKER_IMAGE_NAME = 'wso2mi-custom'
+        
+        // DockerHub configuration
+        DOCKERHUB_USERNAME = 'emmanuelmuchiri'  // Change this
+        DOCKER_IMAGE_NAME = "${DOCKERHUB_USERNAME}/wso2mi-custom"
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
+        
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
 
@@ -131,36 +135,75 @@ docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
 docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
 
 echo "✅ Docker image built successfully"
-docker images | grep ${DOCKER_IMAGE_NAME}
+docker images | grep wso2mi-custom
 EOF
 
                     chmod +x /host_ci_cd/build-docker.sh
                     
                     echo "✅ Build script created at /host_ci_cd/build-docker.sh"
-                    echo ""
-                    echo "Run this command on your Mac terminal:"
-                    echo "/Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh"
                     '''
                 }
             }
         }
 
-        stage('Manual Build Instructions') {
+        stage('Push to DockerHub') {
+            steps {
+                script {
+                    sh '''
+                    echo "===== Creating Docker push script for host ====="
+                    
+                    cat > /host_ci_cd/push-docker.sh <<EOF
+#!/bin/bash
+set -e
+
+echo "Pushing Docker image to DockerHub..."
+
+# Login to DockerHub (will prompt for password)
+echo "Please enter your DockerHub password:"
+docker login -u ${DOCKERHUB_USERNAME}
+
+# Push both tags
+echo "Pushing ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}..."
+docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+
+echo "Pushing ${DOCKER_IMAGE_NAME}:latest..."
+docker push ${DOCKER_IMAGE_NAME}:latest
+
+echo "✅ Docker images pushed successfully to DockerHub!"
+echo ""
+echo "Images available at:"
+echo "  - ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
+echo "  - ${DOCKER_IMAGE_NAME}:latest"
+EOF
+
+                    chmod +x /host_ci_cd/push-docker.sh
+                    
+                    echo "✅ Push script created at /host_ci_cd/push-docker.sh"
+                    '''
+                }
+            }
+        }
+
+        stage('Deployment Instructions') {
             steps {
                 sh '''
                 echo "=============================================="
-                echo "DOCKER BUILD INSTRUCTIONS"
+                echo "DOCKER BUILD & PUSH INSTRUCTIONS"
                 echo "=============================================="
                 echo ""
-                echo "Since Docker CLI is not available in Jenkins,"
-                echo "please run this command on your Mac:"
-                echo ""
+                echo "Step 1: Build the Docker image"
                 echo "  /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh"
                 echo ""
-                echo "Or manually:"
+                echo "Step 2: Push to DockerHub"
+                echo "  /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/push-docker.sh"
+                echo ""
+                echo "Or run both manually:"
                 echo "  cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD"
                 echo "  docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
                 echo "  docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest"
+                echo "  docker login -u ${DOCKERHUB_USERNAME}"
+                echo "  docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
+                echo "  docker push ${DOCKER_IMAGE_NAME}:latest"
                 echo ""
                 echo "=============================================="
                 '''
@@ -174,13 +217,17 @@ EOF
             ✅ Pipeline completed successfully!
             
             Next steps:
-            1. Run the build script on your Mac:
+            1. Build the Docker image:
                /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/build-docker.sh
             
-            2. Then start the container:
+            2. Push to DockerHub:
+               /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/push-docker.sh
+            
+            3. Pull and run from any machine:
+               docker pull ${DOCKER_IMAGE_NAME}:latest
                docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
             
-            3. View logs:
+            4. View logs:
                docker logs -f wso2mi
             """
         }
