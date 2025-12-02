@@ -12,7 +12,11 @@ pipeline {
         
         // Docker image configuration
         DOCKER_IMAGE_NAME = 'wso2mi-custom'
-        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}" // or use 'latest'
+        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
+        
+        // Host machine details (your Mac)
+        HOST_USER = 'emmanuelmuchiri'
+        HOST_IP = 'host.docker.internal' // For Docker Desktop on Mac
         
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
@@ -25,11 +29,10 @@ pipeline {
                 echo "===== Checking Environment ====="
                 which mvn || echo "Maven not found!"
                 which java || echo "Java not found!"
-                which docker || echo "Docker not found!"
                 java -version
-                docker --version
                 echo "MI_HOME = $MI_HOME"
                 echo "CAR_DEPLOY_DIR = $CAR_DEPLOY_DIR"
+                echo "Note: Docker will be executed on host machine"
                 '''
             }
         }
@@ -77,51 +80,62 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Create Dockerfile') {
             steps {
                 sh '''
-                echo "===== Building Docker Image ====="
+                echo "===== Creating Dockerfile ====="
                 
-                # Create Dockerfile if it doesn't exist
-                cat > Dockerfile <<'EOF'
+                cat > ${MI_HOME}/../Dockerfile <<'EOF'
 FROM ubuntu:20.04
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 ENV MI_HOME=/opt/wso2mi-4.3.0
 
-# Install Java 11
 RUN apt-get update && \
     apt-get install -y openjdk-11-jdk && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the entire WSO2 MI directory
 COPY wso2mi-4.3.0 ${MI_HOME}
 
-# Set working directory
 WORKDIR ${MI_HOME}
 
-# Make scripts executable
 RUN chmod +x ${MI_HOME}/bin/*.sh
 
-# Expose default MI ports
 EXPOSE 8290 8253 9164
 
-# Start Micro Integrator
 CMD ["sh", "-c", "${MI_HOME}/bin/micro-integrator.sh"]
 EOF
 
-                echo "Dockerfile created. Building Docker image..."
+                echo "✅ Dockerfile created at ${MI_HOME}/../Dockerfile"
+                '''
+            }
+        }
+
+        stage('Build Docker Image on Host') {
+            steps {
+                sh '''
+                echo "===== Building Docker Image on Host ====="
                 
-                # Build Docker image with the MI directory as context
-                cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD
-                docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
-                docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+                # Build using Docker on host machine (accessible via mounted volume)
+                cd ${MI_HOME}/..
                 
-                echo "✅ Docker image built successfully"
-                docker images | grep ${DOCKER_IMAGE_NAME}
+                # Check if docker command is available via mounted socket
+                if [ -S /var/run/docker.sock ]; then
+                    echo "Docker socket found, attempting build..."
+                    docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
+                    docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+                    echo "✅ Docker image built successfully"
+                else
+                    echo "⚠️  Docker socket not mounted."
+                    echo "Please run Jenkins with: -v /var/run/docker.sock:/var/run/docker.sock"
+                    echo ""
+                    echo "Alternative: Build manually on host with:"
+                    echo "cd ${MI_HOME}/.."
+                    echo "docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
+                    exit 1
+                fi
                 '''
             }
         }
@@ -130,10 +144,11 @@ EOF
             steps {
                 sh '''
                 echo "===== Verifying Docker Image ====="
-                docker images ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                
-                echo "Image size and details:"
-                docker inspect ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} | grep -A 5 "Size"
+                if [ -S /var/run/docker.sock ]; then
+                    docker images ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                else
+                    echo "Skipping verification - Docker not available in Jenkins"
+                fi
                 '''
             }
         }
@@ -147,18 +162,12 @@ EOF
             Docker Image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
             CAR File deployed to: ${CAR_DEPLOY_DIR}
             
-            To run the container:
+            To run the container on your Mac:
             docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
             """
         }
         failure {
             echo "❌ Pipeline failed. Please check the logs."
-        }
-        always {
-            sh '''
-            echo "===== Cleaning up build artifacts ====="
-            # Optional: clean workspace or temporary files
-            '''
         }
     }
 }
