@@ -6,17 +6,13 @@ pipeline {
     }
 
     environment {
-        // Local WSO2 MI directory on your Mac
-        MI_HOME = '/Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/wso2mi-4.3.0'
+        // Path inside Jenkins container (mounted from host)
+        MI_HOME = '/host_ci_cd/wso2mi-4.3.0'
         CAR_DEPLOY_DIR = "${MI_HOME}/repository/deployment/server/carbonapps"
         
         // Docker image configuration
         DOCKER_IMAGE_NAME = 'wso2mi-custom'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        
-        // Host machine details (your Mac)
-        HOST_USER = 'emmanuelmuchiri'
-        HOST_IP = 'host.docker.internal' // For Docker Desktop on Mac
         
         PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
     }
@@ -32,7 +28,15 @@ pipeline {
                 java -version
                 echo "MI_HOME = $MI_HOME"
                 echo "CAR_DEPLOY_DIR = $CAR_DEPLOY_DIR"
-                echo "Note: Docker will be executed on host machine"
+                
+                # Verify mounted directory is accessible
+                if [ -d "$MI_HOME" ]; then
+                    echo "✅ MI_HOME directory accessible"
+                    ls -la $MI_HOME
+                else
+                    echo "❌ MI_HOME directory not found!"
+                    exit 1
+                fi
                 '''
             }
         }
@@ -85,7 +89,7 @@ pipeline {
                 sh '''
                 echo "===== Creating Dockerfile ====="
                 
-                cat > ${MI_HOME}/../Dockerfile <<'EOF'
+                cat > /host_ci_cd/Dockerfile <<'EOF'
 FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -108,33 +112,32 @@ EXPOSE 8290 8253 9164
 CMD ["sh", "-c", "${MI_HOME}/bin/micro-integrator.sh"]
 EOF
 
-                echo "✅ Dockerfile created at ${MI_HOME}/../Dockerfile"
+                echo "✅ Dockerfile created at /host_ci_cd/Dockerfile"
+                cat /host_ci_cd/Dockerfile
                 '''
             }
         }
 
-        stage('Build Docker Image on Host') {
+        stage('Build Docker Image') {
             steps {
                 sh '''
-                echo "===== Building Docker Image on Host ====="
+                echo "===== Building Docker Image ====="
                 
-                # Build using Docker on host machine (accessible via mounted volume)
-                cd ${MI_HOME}/..
-                
-                # Check if docker command is available via mounted socket
+                # Check if Docker socket is mounted
                 if [ -S /var/run/docker.sock ]; then
-                    echo "Docker socket found, attempting build..."
+                    cd /host_ci_cd
                     docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
                     docker tag ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ${DOCKER_IMAGE_NAME}:latest
+                    
                     echo "✅ Docker image built successfully"
+                    docker images | grep ${DOCKER_IMAGE_NAME}
                 else
-                    echo "⚠️  Docker socket not mounted."
-                    echo "Please run Jenkins with: -v /var/run/docker.sock:/var/run/docker.sock"
+                    echo "⚠️  Docker socket not mounted. Cannot build image."
+                    echo "Dockerfile has been created at /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD/Dockerfile"
                     echo ""
-                    echo "Alternative: Build manually on host with:"
-                    echo "cd ${MI_HOME}/.."
+                    echo "Build manually on your Mac with:"
+                    echo "cd /Users/emmanuelmuchiri/Documents/Kulana/CBG/CI_CD"
                     echo "docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} ."
-                    exit 1
                 fi
                 '''
             }
@@ -145,9 +148,12 @@ EOF
                 sh '''
                 echo "===== Verifying Docker Image ====="
                 if [ -S /var/run/docker.sock ]; then
-                    docker images ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                    docker images ${DOCKER_IMAGE_NAME}
+                    echo ""
+                    echo "Image details:"
+                    docker inspect ${DOCKER_IMAGE_NAME}:latest --format='Size: {{.Size}} bytes'
                 else
-                    echo "Skipping verification - Docker not available in Jenkins"
+                    echo "Skipping - Docker not available in Jenkins container"
                 fi
                 '''
             }
@@ -162,8 +168,14 @@ EOF
             Docker Image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
             CAR File deployed to: ${CAR_DEPLOY_DIR}
             
-            To run the container on your Mac:
+            To run the container:
             docker run -d -p 8290:8290 -p 8253:8253 -p 9164:9164 --name wso2mi ${DOCKER_IMAGE_NAME}:latest
+            
+            To view logs:
+            docker logs -f wso2mi
+            
+            To stop:
+            docker stop wso2mi && docker rm wso2mi
             """
         }
         failure {
