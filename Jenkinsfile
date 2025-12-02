@@ -25,7 +25,7 @@ pipeline {
 
         stage('Clone Repository') {
             steps {
-                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-c-d.git'
+                git branch: 'master', url: 'https://github.com/EmmanuelMuchiri/wso2mi-dev-ci-cd.git'
             }
         }
 
